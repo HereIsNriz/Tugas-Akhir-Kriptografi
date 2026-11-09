@@ -59,12 +59,12 @@ Hasil : TQ==
 - Posisi dalam pipeline (wajib urut):
   - **Enkripsi:** `plaintext → Vigenère → LFSR → Base64 → simpan`
   - **Dekripsi:** `Base64 decode → LFSR → Vigenère → plaintext`
-- `super_encrypt` — `diary_app.py:140-143`:
+- `super_encrypt` — `diary_app.py:147-150`:
   ```python
   v = vigenere_enc(teks.encode("utf-8"), password.encode())
   return base64.b64encode(_lfsr_xor(v, password)).decode()
   ```
-- `super_decrypt` — `diary_app.py:146-149`:
+- `super_decrypt` — `diary_app.py:153-156`:
   ```python
   v = _lfsr_xor(base64.b64decode(cipher_b64), password)
   return vigenere_dec(v, password.encode()).decode("utf-8")
@@ -79,8 +79,8 @@ Hasil : TQ==
 ### Catatan penting: format salt & hash password
 Pada aplikasi ini **salt dan hash password tidak memakai Base64**, melainkan
 **hexadecimal**:
-- `salt.hex()` saat registrasi — `diary_app.py:683`
-- `hash_password(...).hex()` — `diary_app.py:105`
+- `salt.hex()` saat registrasi — `diary_app.py:726`
+- `hash_password(...).hex()` — `diary_app.py:112`
 
 Base64 hanya dipakai untuk ciphertext pesan (dan payload steganografi).
 

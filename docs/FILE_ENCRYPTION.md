@@ -54,24 +54,24 @@ Jadi file hasil sedikit lebih besar dari aslinya (overhead header + padding per
 blok).
 
 ## 5. Implementasi pada Aplikasi
-### Enkripsi — `diary_app.py:882-898`
-- Batas ukuran file **5 MB** (`diary_app.py:886`).
-- `rsa_encrypt_bytes(data, key)` — `diary_app.py:196-204`.
+### Enkripsi — `diary_app.py:925-941`
+- Batas ukuran file **5 MB** (`diary_app.py:929`).
+- `rsa_encrypt_bytes(data, key)` — `diary_app.py:203-211`.
 - Output ditulis ke `path + ".rsa"`.
-- Hash ciphertext dicatat ke blockchain — `diary_app.py:896`:
+- Hash ciphertext dicatat ke blockchain — `diary_app.py:939`:
 
   ```python
   tambah_blok(f"file:{os.path.basename(out)}:{hashlib.sha256(blob).hexdigest()}", self.user_id)
   ```
 
-### Dekripsi — `diary_app.py:900-919`
-- `rsa_decrypt_bytes(blob, key)` — `diary_app.py:207-221`.
+### Dekripsi — `diary_app.py:943-962`
+- `rsa_decrypt_bytes(blob, key)` — `diary_app.py:214-228`.
 - Header `RSAF` wajib; jika tidak, muncul error "Bukan file hasil enkripsi RSA
   aplikasi ini."
 - Nama file hasil default = nama asli tanpa `.rsa`.
 
 ### Kunci
-- `muat_rsa(username)` — `diary_app.py:232-241`: memuat atau membuat kunci
+- `muat_rsa(username)` — `diary_app.py:239-248`: memuat atau membuat kunci
   akun, disimpan di `data/rsa_<username>.json`.
 
 ## 6. Catatan Keamanan & Keterbatasan

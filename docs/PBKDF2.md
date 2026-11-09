@@ -67,13 +67,13 @@ hashlib.pbkdf2_hmac(
 ```
 
 ## 5. Implementasi pada Aplikasi
-- `hash_password(password, salt)` — `diary_app.py:104-105`:
+- `hash_password(password, salt)` — `diary_app.py:111-112`:
 
   ```python
   hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000).hex()
   ```
 
-- Registrasi: salt acak 16 byte lalu disimpan hex — `diary_app.py:681-684`:
+- Registrasi: salt acak 16 byte lalu disimpan hex — `diary_app.py:724-727`:
 
   ```python
   salt = secrets.token_bytes(16)
@@ -82,13 +82,13 @@ hashlib.pbkdf2_hmac(
   ```
 
 - Login: hash dihitung ulang dan dibandingkan *constant-time* —
-  `diary_app.py:638`:
+  `diary_app.py:681`:
 
   ```python
   hmac.compare_digest(hash_password(pw, bytes.fromhex(u[1])), u[2])
   ```
 
-- Skema tabel `users` — `diary_app.py:270-272` (`id`, `username`, `salt`,
+- Skema tabel `users` — `diary_app.py:277-279` (`id`, `username`, `salt`,
   `hash`, `dibuat`).
 
 ## 6. Catatan Keamanan

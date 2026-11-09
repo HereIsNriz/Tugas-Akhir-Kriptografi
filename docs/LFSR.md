@@ -69,8 +69,8 @@ $$\text{seed} = \mathrm{int}_{16}\big(\mathrm{SHA256}(\text{password})[0..2]\big
 Jika seed bernilai 0, dipakai `0xACE1` karena state 0 tidak menghasilkan
 keystream.
 
-- `lfsr_keystream(seed, n)` — `diary_app.py:117-131`
-- `_lfsr_xor(data, password)` — `diary_app.py:134-137`
+- `lfsr_keystream(seed, n)` — `diary_app.py:124-138`
+- `_lfsr_xor(data, password)` — `diary_app.py:141-144`
 
 ### Contoh perhitungan sesuai kode
 - **Password:** `abc`

@@ -52,18 +52,18 @@ Hanya 2 dari 8 channel yang benar-benar berubah nilainya, dan perubahannya
 hanya 1 tingkat.
 
 ## 5. Implementasi pada Aplikasi
-- `stego_embed(src, dst, payload)` — `diary_app.py:245-255`:
+- `stego_embed(src, dst, payload)` — `diary_app.py:252-262`:
   1. Buka gambar, `convert("RGB")`.
   2. Payload = 4 byte panjang (big-endian) + data.
   3. Ubah payload menjadi string bit.
   4. Jika jumlah bit melebihi jumlah channel → `ValueError("Gambar terlalu
      kecil untuk pesan ini.")`.
   5. Ganti LSB tiap channel, simpan sebagai **PNG**.
-- `stego_extract(src)` — `diary_app.py:258-265`:
+- `stego_extract(src)` — `diary_app.py:265-272`:
   1. Baca 32 bit pertama sebagai panjang.
   2. Validasi `(panjang + 4) * 8 <= total bit`.
   3. Baca bit pesan sesuai panjang, kembalikan sebagai byte.
-- Alur terintegrasi di UI — `diary_app.py:945-981`:
+- Alur terintegrasi di UI — `diary_app.py:988-1009`:
   - Sisip: `pesan → super_encrypt(pesan, password) → .encode() → stego_embed`.
   - Ekstrak: `stego_extract → .decode() → super_decrypt(...)`.
 

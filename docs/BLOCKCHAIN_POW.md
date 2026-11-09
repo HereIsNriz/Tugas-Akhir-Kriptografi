@@ -11,18 +11,18 @@ Di aplikasi ini blockchain dipakai untuk **menjaga integritas aset penting**.
 Yang dicatat adalah **hash aset** (SHA-256), bukan isi aset.
 
 ## 2. Arsitektur & Prinsip Kerja
-- **Struktur blok (tabel `blocks`)** — `diary_app.py:276-278`:
+- **Struktur blok (tabel `blocks`)** — `diary_app.py:283-285`:
   `idx`, `ts` (timestamp), `data`, `prev_hash`, `nonce`, `hash`, `user_id`.
 - **Genesis block:** blok pertama dengan `idx = 0` dan `prev_hash = "0"`
-  (bukan 64 nol) — `diary_app.py:304-305`.
-- **Hash blok:** SHA-256 atas string dengan pemisah `|` — `diary_app.py:286-287`.
+  (bukan 64 nol) — `diary_app.py:311-312`.
+- **Hash blok:** SHA-256 atas string dengan pemisah `|` — `diary_app.py:293-294`.
 - **PoW:** ulangi `nonce += 1` sampai hash diawali `DIFFICULTY = "000"`
-  (tiga karakter hex nol) — `diary_app.py:50`, `290-301`.
+  (tiga karakter hex nol) — `diary_app.py:52`, `297-308`.
 - **Validasi chain:** untuk setiap blok, (a) hash tersimpan = hash hitung ulang,
   (b) `prev_hash` = hash blok sebelumnya, (c) hash memenuhi difficulty —
-  `diary_app.py:308-326`.
+  `diary_app.py:315-347`.
 - **Verifikasi entri:** blok dengan `data` berawalan `entry:` juga dicek ke
-  tabel `entries` (hash isi dan kepemilikan) — `diary_app.py:316-325`.
+  tabel `entries` (hash isi dan kepemilikan) — `diary_app.py:323-335`.
 
 ## 3. Rumus & Operasi
 - **Hash blok:**
@@ -67,22 +67,24 @@ tidak lagi sama dengan `hash` tersimpan, sehingga verifikasi mengembalikan
 `False`. Penyerang harus me-mining ulang blok 1 dan semua blok sesudahnya.
 
 ## 5. Implementasi pada Aplikasi
-- Konstanta `DIFFICULTY = "000"` — `diary_app.py:50`.
-- `hitung_hash(idx, ts, data, prev, nonce)` — `diary_app.py:286-287`.
-- `tambah_blok(data, user_id=0)` — `diary_app.py:290-301`:
+- Konstanta `DIFFICULTY = "000"` — `diary_app.py:52`.
+- `hitung_hash(idx, ts, data, prev, nonce)` — `diary_app.py:293-294`.
+- `tambah_blok(data, user_id=0)` — `diary_app.py:297-308`:
   mengambil blok terakhir, menentukan `idx` dan `prev`, lalu mining.
-- Genesis otomatis dibuat saat database masih kosong — `diary_app.py:304-305`.
-- `verifikasi_chain()` — `diary_app.py:308-326`:
-  memeriksa seluruh rantai (semua akun) + kecocokan data entri.
+- Genesis otomatis dibuat saat database masih kosong — `diary_app.py:311-312`.
+- `verifikasi_chain()` — `diary_app.py:315-347`:
+  memeriksa seluruh rantai (semua akun) + kecocokan data entri dan hash file
+  (bila file masih tersedia).
 - Aset yang dicatat:
-  - **Entri diary:** `entry:<id>:<sha256(judul_enc+isi_enc)>` — `diary_app.py:841`.
-  - **File terenkripsi:** `file:<nama>:<sha256(blob)>` — `diary_app.py:896`.
+  - **Entri diary:** `entry:<id>:<sha256(judul_enc+isi_enc)>` — `diary_app.py:884`.
+  - **File terenkripsi:** `file:<nama>:<sha256(blob)>` — `diary_app.py:939`.
 - Tampilan UI hanya menampilkan blok milik pengguna + genesis —
-  `diary_app.py:1009-1011`.
+  `diary_app.py:1049-1055`.
 
 ### Keterbatasan saat ini
-- Verifikasi `file:` **belum** mengecek keberadaan/hash file aslinya; baru
-  memeriksa integritas rantai blok. Peningkatan direncanakan.
+- Verifikasi `file:` mengecek `sha256` isi file bila file ditemukan di folder
+  proyek atau `data/`; jika file sudah tidak ada, hanya integritas rantai yang
+  diperiksa.
 - Steganografi belum mendaftarkan hash gambar ke blockchain.
 - Blockchain disimpan di tabel SQLite yang sama, sehingga tidak tahan terhadap
   penghapusan seluruh tabel (tidak ada node terdistribusi).

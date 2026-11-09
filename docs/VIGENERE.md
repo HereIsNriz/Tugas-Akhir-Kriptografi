@@ -45,13 +45,13 @@ $$C_i = (P_i + K_i) \bmod 256, \qquad P_i = (C_i - K_i) \bmod 256$$
 dengan $P_i$ = byte plaintext ke-$i$, $K_i$ = byte password ke-$(i \bmod
 \ell)$ (password diulang). Semua byte ikut diproses, termasuk spasi/tanda baca.
 
-- `vigenere_enc(data, key)` — `diary_app.py:109-110`:
+- `vigenere_enc(data, key)` — `diary_app.py:116-117`:
 
   ```python
   bytes((b + key[i % len(key)]) % 256 for i, b in enumerate(data))
   ```
 
-- `vigenere_dec(data, key)` — `diary_app.py:113-114`:
+- `vigenere_dec(data, key)` — `diary_app.py:120-121`:
 
   ```python
   bytes((b - key[i % len(key)]) % 256 for i, b in enumerate(data))

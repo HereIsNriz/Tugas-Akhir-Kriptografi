@@ -51,16 +51,16 @@ $$P = 2790^{2753} \bmod 3233 = 65 \rightarrow \text{'A'}$$
 Aplikasi mengimplementasikan RSA **tanpa library kripto**, memakai modul
 standar Python.
 
-### Pembangkitan kunci — `diary_app.py:153-193`
+### Pembangkitan kunci — `diary_app.py:160-200`
 - `_is_prime(n, k=20)` — uji **Miller–Rabin** dengan 20 putaran dan penyaringan
   bilangan prima kecil.
 - `_gen_prime(bits)` — membangkitkan bilangan prima acak `bits`-bit
   (bit teratas diset 1, selalu ganjil).
 - `rsa_keygen(bits=1024)` — $p$ dan $q$ masing-masing 512-bit, $e = 65537$,
   $\phi = (p-1)(q-1)$, $d = e^{-1} \bmod \phi$.
-- Kunci disimpan sebagai JSON: `n`, `e`, `d`, `p`, `q` — `diary_app.py:232-241`.
+- Kunci disimpan sebagai JSON: `n`, `e`, `d`, `p`, `q` — `diary_app.py:239-248`.
 
-### Enkripsi file — `diary_app.py:196-204`
+### Enkripsi file — `diary_app.py:203-211`
 Karena pesan harus lebih kecil dari $n$, file dipecah per blok:
 
 $$k = \left\lceil \frac{\text{bit length}(n)}{8} \right\rceil, \qquad \text{ukuran blok} = k - 2$$
@@ -72,7 +72,7 @@ $$m = \mathrm{int}\big(\texttt{0x01} \parallel \text{blok}\big), \qquad c = m^e 
 Output diawali header `b"RSAF"`, lalu setiap ciphertext blok ditulis tepat
 $k$ byte. Ekstensi file hasil: `.rsa`.
 
-### Dekripsi file — `diary_app.py:207-221`
+### Dekripsi file — `diary_app.py:214-228`
 - Memeriksa header `RSAF`; jika tidak cocok → error "Bukan file hasil enkripsi
   RSA aplikasi ini."
 - Dekripsi memakai **CRT** (`dp`, `dq`, `qinv`) untuk kecepatan.
@@ -82,7 +82,7 @@ $k$ byte. Ekstensi file hasil: `.rsa`.
 - Implementasi ini adalah **textbook RSA** tanpa padding OAEP/PKCS#1. Akibatnya
   deterministik dan kurang aman untuk produksi. Peningkatan ke **2048-bit +
   OAEP** direncanakan (lihat `FILE_ENCRYPTION.md`).
-- Ukuran file dibatasi 5 MB (`diary_app.py:886`) karena RSA murni lambat untuk
+- Ukuran file dibatasi 5 MB (`diary_app.py:929`) karena RSA murni lambat untuk
   data besar.
 
 ## 6. Catatan Keamanan

@@ -84,34 +84,33 @@ jaraknya jauh lebih kecil.
 - Dependency: `opencv-contrib-python` (wajib contrib, karena `cv2.face` tidak
   ada di `opencv-python` biasa) dan `numpy`.
 - Detektor: `haarcascade_frontalface_default.xml`, dicari di folder proyek,
-  folder `data/`, lalu folder bawaan OpenCV — `diary_app.py:335-347`.
+  folder `data/`, lalu folder bawaan OpenCV — `diary_app.py:356-368`.
 - Kamera: `cv2.VideoCapture(0, cv2.CAP_DSHOW)`.
 
-### Pendaftaran wajah — `diary_app.py:350-380`
+### Pendaftaran wajah — `diary_app.py:371-404`
 - Target **40 sampel**, minimal **20 sampel** agar dianggap berhasil
-  (`diary_app.py:360`, `375`).
+  (`diary_app.py:384`, `399`).
 - Deteksi: `det.detectMultiScale(gray, 1.3, 5)[:1]` (ambil satu wajah).
 - Crop lalu resize **200×200** grayscale.
 - Latih `cv2.face.LBPHFaceRecognizer_create()` dan simpan model ke
   `data/face_<username>.yml`.
 
-### Verifikasi wajah — `diary_app.py:383-416`
-- Batas waktu **10 detik** (`diary_app.py:398`).
-- Butuh **5 frame cocok** (`cocok >= 5`) — `diary_app.py:398`, `416`.
+### Verifikasi wajah — `diary_app.py:407-444`
+- Batas waktu **10 detik** (`diary_app.py:426`).
+- Butuh **5 frame cocok** (`cocok >= 5`) — `diary_app.py:426`, `444`.
 - `predict()` mengembalikan `(label, confidence)`.
-- Ambang `FACE_THRESHOLD = 70` (`diary_app.py:51`): dianggap cocok bila
-  `confidence < 70` (`diary_app.py:405`).
+- Ambang `FACE_THRESHOLD = 70` (`diary_app.py:53`): dianggap cocok bila
+  `confidence < 70` (`diary_app.py:434`).
 
 ### Kaitan dengan dongle
 Sesuai `INSTRUCTION.md` 2.1, biometrik hanya aktif dengan bantuan dongle.
-Saat ini dongle dicek di awal aplikasi (`diary_app.py:1020`); pengikatan
-eksplisit `cek_dongle()` ke fungsi biometrik direncanakan (lihat
-`AUTH_DONGLE.md`).
+`cek_dongle()` dipanggil di awal `biometrik_daftar` (`diary_app.py:372`) dan
+`biometrik_verifikasi` (`diary_app.py:408`); bila gagal, fungsi mengembalikan
+`False` tanpa membuka kamera (lihat `AUTH_DONGLE.md`).
 
 ### Catatan
-- Jika OpenCV tidak terpasang, saat ini ada fallback **simulasi** yang
-  menanyakan "cocok?" — ini **melanggar** semangat syarat biometrik dan
-  direncanakan dihapus (fail-closed).
+- Jika OpenCV tidak terpasang, biometrik **gagal (fail-closed)**; tidak ada
+  lagi fallback simulasi.
 - Hanya model `.yml` yang disimpan, bukan foto mentah wajah.
 
 ## 6. Catatan Keamanan

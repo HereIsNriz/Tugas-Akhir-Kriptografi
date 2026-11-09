@@ -7,7 +7,7 @@ memakai SQLite (`data/diary_multi.db`) dengan enkripsi pada tingkat aplikasi:
 data dienkripsi **sebelum** ditulis ke database, lalu didekripsi **setelah**
 dibaca.
 
-## 2. Skema Database — `diary_app.py:269-279`
+## 2. Skema Database — `diary_app.py:276-286`
 ### Tabel `users`
 | Kolom | Isi | Status |
 |---|---|---|
@@ -32,14 +32,14 @@ dibaca.
 | `idx`, `ts`, `data`, `prev_hash`, `nonce`, `hash`, `user_id` | metadata blockchain + hash aset | plaintext (hash bersifat publik) |
 
 ## 3. Alur Penyimpanan & Pengambilan
-### Simpan entri — `diary_app.py:832-844`
+### Simpan entri — `diary_app.py:875-887`
 1. Ambil judul dan isi dari UI.
 2. Enkripsi keduanya dengan `super_encrypt(..., password)`.
 3. `INSERT` ke `entries(user_id, tanggal, judul_enc, isi_enc)`.
 4. Catat hash ciphertext ke blockchain:
    `entry:<id>:<sha256(judul_enc + isi_enc)>`.
 
-### Ambil entri — `diary_app.py:819-830`, `846-864`
+### Ambil entri — `diary_app.py:862-873`, `889-907`
 1. `SELECT id, tanggal, judul_enc FROM entries WHERE user_id=?` untuk daftar.
 2. Dekripsi judul dengan `super_decrypt(judul_enc, password)`.
 3. Saat entri dipilih, dekripsi `isi_enc` dan tampilkan.

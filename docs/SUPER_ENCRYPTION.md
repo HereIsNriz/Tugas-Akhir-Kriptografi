@@ -82,14 +82,14 @@ Hasil: `[38, 56, 10, 43]`
 Dekripsi `JjgKKw==` dengan password `kunci` mengembalikan `Halo`.
 
 ## 5. Implementasi pada Aplikasi
-- `super_encrypt(teks, password)` — `diary_app.py:140-143`:
+- `super_encrypt(teks, password)` — `diary_app.py:147-150`:
 
   ```python
   v = vigenere_enc(teks.encode("utf-8"), password.encode())
   return base64.b64encode(_lfsr_xor(v, password)).decode()
   ```
 
-- `super_decrypt(cipher_b64, password)` — `diary_app.py:146-149`:
+- `super_decrypt(cipher_b64, password)` — `diary_app.py:153-156`:
 
   ```python
   v = _lfsr_xor(base64.b64decode(cipher_b64), password)
@@ -97,9 +97,9 @@ Dekripsi `JjgKKw==` dengan password `kunci` mengembalikan `Halo`.
   ```
 
 - Dipakai untuk:
-  - Judul dan isi diary sebelum disimpan — `diary_app.py:837`.
-  - Membaca kembali diary — `diary_app.py:858-859`.
-  - Pesan pada steganografi — `diary_app.py:961`, `975`.
+  - Judul dan isi diary sebelum disimpan — `diary_app.py:880`.
+  - Membaca kembali diary — `diary_app.py:901-902`.
+  - Pesan pada steganografi — `diary_app.py:1004`, `1018`.
 
 ## 6. Catatan Keamanan
 - Kedua lapisan memakai **password yang sama** (tidak ada kunci independen).
