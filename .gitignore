@@ -1,9 +1,16 @@
 # Data lokal / sensitif
 data/*.db
 data/*.yml
+data/*.sface.json
+data/*.sface.json.*.tmp
 data/rsa_*.json
 license.key
+dev/
 *.rsa
+
+# Model publik (diunduh oleh setup_face_models.py)
+models/*.onnx
+models/*.download
 
 # Python
 __pycache__/

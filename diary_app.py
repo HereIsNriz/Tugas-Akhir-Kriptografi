@@ -4,7 +4,7 @@ SECRET DIARY v2 - Tugas Akhir Kriptografi
 Fitur & algoritma:
  1. Dongle (flashdisk + license.key)  -> aplikasi hanya jalan bila flashdisk terpasang
  2. Multi akun (register & login)     -> tiap akun punya data, wajah, dan kunci RSA sendiri
- 3. Login biometrik (wajah, OpenCV)   -> verifikasi setelah password
+ 3. Login biometrik (YuNet + SFace)   -> verifikasi setelah password
  4. Login password                    -> hash PBKDF2-HMAC-SHA256 + salt
  5. Pesan teks diary                  -> SUPER ENKRIPSI: Vigenere (klasik) + LFSR (modern)
  6. Pesan file                        -> RSA (implementasi sendiri, tanpa library)
@@ -15,30 +15,28 @@ Fitur & algoritma:
 Install:  pip install pillow opencv-contrib-python
 Jalankan: python diary_app.py
 """
-import os
-import re
-import json
-import time
+
 import base64
+import ctypes
 import hashlib
 import hmac
+import json
+import os
+import re
 import secrets
 import sqlite3
 import string
-import ctypes
-from datetime import datetime
 import tkinter as tk
-from tkinter import ttk, filedialog
+from datetime import datetime
+from tkinter import filedialog, ttk
 
-try:
-    import cv2
-    import numpy as np
-    HAS_CV = hasattr(cv2, "face")      # butuh opencv-contrib-python
-except ImportError:
-    HAS_CV = False
+import diary_storage
+import face_auth
+import rsa_files
 
 try:
     from PIL import Image
+
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -50,13 +48,13 @@ DONGLE_KEY_HASH = "9d8e7c17c0cc2e86f9c1bf231c8ba05b3f4c2636377be8eae28db8600a777
 DEMO_MODE = False              # True = lewati dongle (khusus demo/testing; jangan di-commit)
 DONGLE_DEV_PATH = None         # contoh: r"D:\dev\license.key" untuk uji tanpa flashdisk
 DIFFICULTY = "000"             # tingkat kesulitan proof of work
-FACE_THRESHOLD = 70            # makin kecil = makin ketat
+DEBUG_BIOMETRIK = os.environ.get("DIARY_DEBUG_BIOMETRIK") == "1"  # log skor SFace
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
 os.makedirs(DATA, exist_ok=True)
 DB_FILE = os.path.join(DATA, "diary_multi.db")
-CASCADE_NAMA = "haarcascade_frontalface_default.xml"
+FACE_MODELS = os.path.join(BASE, "models")
 
 # ====================== TEMA (DIARY) ======================
 BG = "#F6EEDC"        # kertas krem
@@ -114,10 +112,14 @@ def hash_password(password, salt):
 
 # ====================== 3. SUPER ENKRIPSI: VIGENERE + LFSR ======================
 def vigenere_enc(data: bytes, key: bytes) -> bytes:
+    if not key:
+        raise ValueError("Kunci Vigenere tidak boleh kosong.")
     return bytes((b + key[i % len(key)]) % 256 for i, b in enumerate(data))
 
 
 def vigenere_dec(data: bytes, key: bytes) -> bytes:
+    if not key:
+        raise ValueError("Kunci Vigenere tidak boleh kosong.")
     return bytes((b - key[i % len(key)]) % 256 for i, b in enumerate(data))
 
 
@@ -152,7 +154,7 @@ def super_encrypt(teks: str, password: str) -> str:
 
 def super_decrypt(cipher_b64: str, password: str) -> str:
     """Base64 -> LFSR (XOR) -> Vigenere -> Plaintext."""
-    v = _lfsr_xor(base64.b64decode(cipher_b64), password)
+    v = _lfsr_xor(base64.b64decode(cipher_b64, validate=True), password)
     return vigenere_dec(v, password.encode()).decode("utf-8")
 
 
@@ -201,31 +203,11 @@ def rsa_keygen(bits=1024):
 
 
 def rsa_encrypt_bytes(data: bytes, key) -> bytes:
-    n, e = key["n"], key["e"]
-    k = (n.bit_length() + 7) // 8
-    size = k - 2                      # 1 byte untuk prefix 0x01
-    out = bytearray(b"RSAF")
-    for i in range(0, len(data), size):
-        m = int.from_bytes(b"\x01" + data[i:i + size], "big")
-        out += pow(m, e, n).to_bytes(k, "big")
-    return bytes(out)
+    return rsa_files.encrypt_bytes(data, key)
 
 
 def rsa_decrypt_bytes(blob: bytes, key) -> bytes:
-    if blob[:4] != b"RSAF":
-        raise ValueError("Bukan file hasil enkripsi RSA aplikasi ini.")
-    n, d, p, q = key["n"], key["d"], key["p"], key["q"]
-    k = (n.bit_length() + 7) // 8
-    dp, dq, qinv = d % (p - 1), d % (q - 1), pow(q, -1, p)
-    out = bytearray()
-    body = blob[4:]
-    for i in range(0, len(body), k):
-        c = int.from_bytes(body[i:i + k], "big")
-        m1, m2 = pow(c, dp, p), pow(c, dq, q)       # CRT supaya lebih cepat
-        m = m2 + ((qinv * (m1 - m2)) % p) * q
-        raw = m.to_bytes((m.bit_length() + 7) // 8, "big")
-        out += raw[1:]                               # buang prefix 0x01
-    return bytes(out)
+    return rsa_files.decrypt_bytes(blob, key)
 
 
 def path_rsa(username):
@@ -250,7 +232,10 @@ def muat_rsa(username):
 
 # ====================== 5. STEGANOGRAFI LSB ======================
 def stego_embed(src, dst, payload: bytes):
-    img = Image.open(src).convert("RGB")
+    if not payload:
+        raise ValueError("Pesan steganografi tidak boleh kosong.")
+    with Image.open(src) as source:
+        img = source.convert("RGB")
     data = len(payload).to_bytes(4, "big") + payload
     bits = "".join(f"{b:08b}" for b in data)
     flat = [c for px in img.getdata() for c in px]
@@ -258,18 +243,19 @@ def stego_embed(src, dst, payload: bytes):
         raise ValueError("Gambar terlalu kecil untuk pesan ini.")
     for i, bit in enumerate(bits):
         flat[i] = (flat[i] & ~1) | int(bit)
-    img.putdata([tuple(flat[i:i + 3]) for i in range(0, len(flat), 3)])
-    img.save(dst, "PNG")                              # harus PNG (lossless)
+    img.putdata([tuple(flat[i : i + 3]) for i in range(0, len(flat), 3)])
+    img.save(dst, "PNG")  # harus PNG (lossless)
 
 
 def stego_extract(src) -> bytes:
-    img = Image.open(src).convert("RGB")
+    with Image.open(src) as source:
+        img = source.convert("RGB")
     flat = [c for px in img.getdata() for c in px]
     length = int("".join(str(c & 1) for c in flat[:32]), 2)
     if length <= 0 or (length + 4) * 8 > len(flat):
         raise ValueError("Tidak ada pesan tersembunyi di gambar ini.")
-    bits = "".join(str(c & 1) for c in flat[32:32 + length * 8])
-    return bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
+    bits = "".join(str(c & 1) for c in flat[32 : 32 + length * 8])
+    return bytes(int(bits[i : i + 8], 2) for i in range(0, len(bits), 8))
 
 
 # ====================== 6. DATABASE + BLOCKCHAIN ======================
@@ -295,56 +281,18 @@ def hitung_hash(idx, ts, data, prev, nonce):
 
 
 def tambah_blok(data: str, user_id: int = 0):
-    last = DB.execute("SELECT idx, hash FROM blocks ORDER BY idx DESC LIMIT 1").fetchone()
-    idx, prev = (last[0] + 1, last[1]) if last else (0, "0")
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    nonce = 0
-    while True:
-        h = hitung_hash(idx, ts, data, prev, nonce)
-        if h.startswith(DIFFICULTY):
-            break
-        nonce += 1
-    DB.execute("INSERT INTO blocks VALUES(?,?,?,?,?,?,?)", (idx, ts, data, prev, nonce, h, user_id))
-    DB.commit()
+    return diary_storage.append_block(DB, data, user_id, DIFFICULTY)
 
 
-if DB.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == 0:
+if (
+    DB.execute("SELECT COUNT(*) FROM blocks").fetchone()[0] == 0
+    and DB.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 0
+):
     tambah_blok("Genesis Block - Secret Diary", 0)
 
 
 def verifikasi_chain():
-    """Memeriksa seluruh rantai (semua akun) dan kecocokan data diary."""
-    prev = "0"
-    for idx, ts, data, ph, nonce, h, uid in DB.execute(
-            "SELECT idx, ts, data, prev_hash, nonce, hash, user_id FROM blocks ORDER BY idx"):
-        if ph != prev or hitung_hash(idx, ts, data, ph, nonce) != h or not h.startswith(DIFFICULTY):
-            return False, f"Blok #{idx} tidak valid (rantai rusak)."
-        prev = h
-        if data.startswith("entry:"):
-            bagian = data.split(":")
-            if len(bagian) != 3:
-                return False, f"Format blok entri #{idx} tidak valid."
-            _, eid, hs = bagian
-            row = DB.execute("SELECT judul_enc, isi_enc, user_id FROM entries WHERE id=?",
-                             (eid,)).fetchone()
-            if row is None:
-                return False, f"Entri diary #{eid} hilang dari database."
-            if sha256(row[0] + row[1]) != hs:
-                return False, f"Isi entri diary #{eid} sudah diubah!"
-            if row[2] != uid:
-                return False, f"Pemilik entri diary #{eid} sudah diubah!"
-        elif data.startswith("file:"):
-            bagian = data.split(":")
-            if len(bagian) != 3:
-                return False, f"Format blok file #{idx} tidak valid."
-            _, nama, hs = bagian
-            kandidat = [os.path.join(BASE, nama), os.path.join(DATA, nama)]
-            berkas = next((p for p in kandidat if os.path.isfile(p)), None)
-            if berkas is not None:
-                with open(berkas, "rb") as f:
-                    if hashlib.sha256(f.read()).hexdigest() != hs:
-                        return False, f"File '{nama}' sudah diubah!"
-    return True, "Semua blok valid. Data diary dan file terverifikasi."
+    return diary_storage.verify_chain(DB, BASE, DATA, DIFFICULTY)
 
 
 def cari_user(username):
@@ -353,95 +301,36 @@ def cari_user(username):
 
 
 # ====================== 7. BIOMETRIK WAJAH ======================
-def _detektor():
-    """Cari file cascade: folder proyek, folder data, lalu folder bawaan OpenCV."""
-    kandidat = [os.path.join(BASE, CASCADE_NAMA), os.path.join(DATA, CASCADE_NAMA)]
-    if hasattr(cv2, "data"):
-        kandidat.append(os.path.join(cv2.data.haarcascades, CASCADE_NAMA))
-    for path in kandidat:
-        if os.path.isfile(path):
-            det = cv2.CascadeClassifier(path)
-            if not det.empty():
-                return det
-    raise FileNotFoundError(
-        f"File {CASCADE_NAMA} tidak ditemukan.\n"
-        f"Letakkan file tersebut di folder:\n{BASE}")
+def _biometrik(face_path, daftar=False) -> bool:
+    if not cek_dongle():
+        messagebox.showerror("Biometrik", "Dongle tidak terpasang.")
+        return False
+    if not daftar and not os.path.isfile(face_path + ".sface.json"):
+        messagebox.showerror(
+            "Rekam Ulang Wajah",
+            "Profil SFace belum tersedia. Model LBPH lama tidak dipakai lagi.\n"
+            "Pemilik akun perlu menjalankan migrate_face.py dari komputer tepercaya.\n"
+            "Akun dan diary lama tetap tersimpan. Lihat README bagian migrasi wajah.",
+        )
+        return False
+    try:
+        action = face_auth.enroll if daftar else face_auth.verify
+        return action(face_path, FACE_MODELS, cek_dongle, debug=DEBUG_BIOMETRIK)
+    except face_auth.FaceAuthError as ex:
+        messagebox.showerror(
+            "Biometrik Gagal",
+            str(ex)
+            + "\n\nPastikan kamera tersedia dan jalankan:\npython setup_face_models.py",
+        )
+        return False
 
 
 def biometrik_daftar(face_path) -> bool:
-    if not cek_dongle():
-        messagebox.showerror("Biometrik", "Dongle tidak terpasang.\nBiometrik tidak dapat diaktifkan.")
-        return False
-    if not HAS_CV:
-        messagebox.showerror("Biometrik", "OpenCV (contrib) tidak terpasang.\nBiometrik tidak dapat digunakan.")
-        return False
-    try:
-        det = _detektor()
-    except FileNotFoundError as ex:
-        messagebox.showerror("Biometrik", str(ex))
-        return False
-    cap, samples = cv2.VideoCapture(0, cv2.CAP_DSHOW), []
-    while len(samples) < 40:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        for (x, y, w, h) in det.detectMultiScale(gray, 1.3, 5)[:1]:
-            samples.append(cv2.resize(gray[y:y + h, x:x + w], (200, 200)))
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(frame, f"Merekam wajah {len(samples)}/40 (q = batal)", (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.imshow("Daftar Wajah", frame)
-        if cv2.waitKey(100) & 0xFF == ord("q"):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
-    if len(samples) < 20:
-        return False
-    rec = cv2.face.LBPHFaceRecognizer_create()
-    rec.train(samples, np.zeros(len(samples), dtype=np.int32))
-    rec.write(face_path)
-    return True
+    return _biometrik(face_path, daftar=True)
 
 
 def biometrik_verifikasi(face_path) -> bool:
-    if not cek_dongle():
-        messagebox.showerror("Biometrik", "Dongle tidak terpasang.\nBiometrik tidak dapat diaktifkan.")
-        return False
-    if not HAS_CV:
-        messagebox.showerror("Biometrik", "OpenCV (contrib) tidak terpasang.\nBiometrik tidak dapat digunakan.")
-        return False
-    if not os.path.exists(face_path):
-        messagebox.showerror("Biometrik", "Data wajah akun ini tidak ditemukan.")
-        return False
-    try:
-        det = _detektor()
-    except FileNotFoundError as ex:
-        messagebox.showerror("Biometrik", str(ex))
-        return False
-    rec = cv2.face.LBPHFaceRecognizer_create()
-    rec.read(face_path)
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    cocok, mulai = 0, time.time()
-    while time.time() - mulai < 10 and cocok < 5:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        for (x, y, w, h) in det.detectMultiScale(gray, 1.3, 5)[:1]:
-            _, conf = rec.predict(cv2.resize(gray[y:y + h, x:x + w], (200, 200)))
-            warna = (0, 255, 0) if conf < FACE_THRESHOLD else (0, 0, 255)
-            if conf < FACE_THRESHOLD:
-                cocok += 1
-            cv2.rectangle(frame, (x, y), (x + w, y + h), warna, 2)
-        cv2.putText(frame, "Verifikasi wajah... (q = batal)", (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.imshow("Login Biometrik", frame)
-        if cv2.waitKey(100) & 0xFF == ord("q"):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
-    return cocok >= 5
+    return _biometrik(face_path)
 
 
 # ====================== KOMPONEN UI ======================
@@ -877,14 +766,20 @@ class App(tk.Tk):
         if not judul or not isi:
             messagebox.showwarning("Kosong", "Judul dan isi diary harus diisi.")
             return
-        j_enc, i_enc = super_encrypt(judul, self.password), super_encrypt(isi, self.password)
-        cur = DB.execute("INSERT INTO entries(user_id, tanggal, judul_enc, isi_enc) VALUES(?,?,?,?)",
-                         (self.user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), j_enc, i_enc))
-        DB.commit()
-        tambah_blok(f"entry:{cur.lastrowid}:{sha256(j_enc + i_enc)}", self.user_id)
+        j_enc, i_enc = (
+            super_encrypt(judul, self.password),
+            super_encrypt(isi, self.password),
+        )
+        try:
+            diary_storage.save_entry(DB, self.user_id, j_enc, i_enc, DIFFICULTY)
+        except (sqlite3.Error, ValueError) as ex:
+            messagebox.showerror("Gagal Menyimpan", f"Catatan tidak disimpan: {ex}")
+            return
         self.refresh_diary()
         self.tulis_baru()
-        messagebox.showinfo("Tersimpan", "Catatan dienkripsi, disimpan, dan dicatat di blockchain.")
+        messagebox.showinfo(
+            "Tersimpan", "Catatan dienkripsi, disimpan, dan dicatat di blockchain."
+        )
 
     def pilih_entri(self, _):
         sel = self.lb.curselection()
@@ -926,39 +821,80 @@ class App(tk.Tk):
         path = filedialog.askopenfilename(title="Pilih file")
         if not path:
             return
-        if os.path.getsize(path) > 5 * 1024 * 1024:
-            messagebox.showwarning("Terlalu besar", "Maksimal 5 MB.")
+        out = filedialog.asksaveasfilename(
+            title="Simpan file terenkripsi (pilih nama baru)",
+            initialdir=os.path.dirname(path),
+            initialfile=os.path.basename(path) + ".rsa",
+            defaultextension=".rsa",
+            filetypes=[("RSA", "*.rsa")],
+        )
+        if not out:
             return
-        self.config(cursor="watch")
-        self.update()
-        with open(path, "rb") as f:
-            blob = rsa_encrypt_bytes(f.read(), self.rsa)
-        out = path + ".rsa"
-        with open(out, "wb") as f:
-            f.write(blob)
-        tambah_blok(f"file:{os.path.basename(out)}:{hashlib.sha256(blob).hexdigest()}", self.user_id)
-        self.config(cursor="")
-        self.l_file.config(text=f"✅ Berhasil dienkripsi:\n{out}", fg=GREEN)
+        try:
+            self.config(cursor="watch")
+            self.update()
+            with open(path, "rb") as f:
+                data = f.read(5 * 1024 * 1024 + 1)
+            if len(data) > 5 * 1024 * 1024:
+                messagebox.showwarning("Terlalu besar", "Maksimal 5 MB.")
+                return
+            blob = rsa_encrypt_bytes(data, self.rsa)
+            out = diary_storage.save_encrypted_file(
+                DB, out, blob, self.user_id, DIFFICULTY
+            )
+        except FileExistsError:
+            messagebox.showerror(
+                "File Sudah Ada", "Pilih nama baru; file lama tidak ditimpa."
+            )
+            return
+        except (OSError, ValueError, sqlite3.Error) as ex:
+            messagebox.showerror("Gagal Enkripsi", str(ex))
+            return
+        finally:
+            self.config(cursor="")
+        self.l_file.config(text=f"✅ Berhasil dienkripsi dan dicatat:\n{out}", fg=GREEN)
 
     def dekripsi_file(self):
-        path = filedialog.askopenfilename(title="Pilih file .rsa", filetypes=[("RSA", "*.rsa")])
+        path = filedialog.askopenfilename(
+            title="Pilih file .rsa", filetypes=[("RSA", "*.rsa")]
+        )
         if not path:
             return
         try:
             self.config(cursor="watch")
             self.update()
             with open(path, "rb") as f:
-                hasil = rsa_decrypt_bytes(f.read(), self.rsa)
+                blob = f.read(6 * 1024 * 1024 + 1)
+            if len(blob) > 6 * 1024 * 1024:
+                raise ValueError("File RSA terlalu besar (maksimal 6 MB ciphertext).")
+            hasil = rsa_decrypt_bytes(blob, self.rsa)
             self.config(cursor="")
         except Exception as ex:
             self.config(cursor="")
             messagebox.showerror("Gagal", str(ex))
             return
+        if blob[:4] == b"RSAF":
+            messagebox.showwarning(
+                "Format RSA Lama",
+                "File RSAF lama tidak memiliki checksum. Hasilnya tidak bisa dipastikan utuh; "
+                "bandingkan dengan file asli jika tersedia.",
+            )
         nama = os.path.basename(path)[:-4] if path.endswith(".rsa") else "hasil"
-        out = filedialog.asksaveasfilename(initialfile=nama, title="Simpan hasil dekripsi")
+        out = filedialog.asksaveasfilename(
+            initialfile=nama, title="Simpan hasil dekripsi"
+        )
         if out:
-            with open(out, "wb") as f:
-                f.write(hasil)
+            try:
+                with open(out, "xb") as f:
+                    f.write(hasil)
+            except FileExistsError:
+                messagebox.showerror(
+                    "File Sudah Ada", "Pilih nama baru; file lama tidak ditimpa."
+                )
+                return
+            except OSError as ex:
+                messagebox.showerror("Gagal Menyimpan", str(ex))
+                return
             self.l_file.config(text=f"✅ Berhasil didekripsi:\n{out}", fg=GREEN)
 
     # ---------- Halaman Steganografi ----------
@@ -1063,8 +999,10 @@ if __name__ == "__main__":
     if not cek_dongle():
         r = tk.Tk()
         r.withdraw()
-        messagebox.showerror("Akses Ditolak",
-                             "Dongle tidak ditemukan!\nPasang flashdisk yang berisi license.key.")
+        messagebox.showerror(
+            "Akses Ditolak",
+            "Dongle tidak ditemukan!\nPasang flashdisk yang berisi license.key.",
+        )
         r.destroy()
         raise SystemExit
     App().mainloop()
