@@ -13,7 +13,8 @@ aktivasi.
   dan pasangan kunci RSA sendiri.
 - **Login aman** — password di-hash dengan PBKDF2-HMAC-SHA256 + salt, lalu
   diverifikasi dengan biometrik wajah (OpenCV LBPH).
-- **Dongle** — aplikasi hanya berjalan jika flashdisk berisi `license.key`.
+- **Dongle** — aplikasi hanya berjalan jika flashdisk berisi `license.key`;
+  pencabutan saat sesi aktif memaksa logout.
 - **Super Encryption teks** — Vigenère (klasik) + LFSR (modern) + Base64,
   diterapkan pada judul dan isi diary sebelum disimpan.
 - **Enkripsi file** — RSA implementasi sendiri (tanpa library kripto), hasil
@@ -74,12 +75,17 @@ pip install pillow opencv-contrib-python numpy
 
 ### Menjalankan tanpa flashdisk (testing)
 
-Buka `diary_app.py` dan sesuaikan konfigurasi di bagian atas file:
+Buka `diary_app.py` dan sesuaikan konfigurasi di bagian atas file. Pilih salah
+satu:
 
 ```python
-DONGLE_WAJIB = False           # lewati pemeriksaan dongle (khusus testing)
-DONGLE_HANYA_REMOVABLE = False # jika flashdisk tidak terdeteksi sebagai removable
+DEMO_MODE = True        # lewati pemeriksaan dongle sepenuhnya (khusus demo)
+# atau
+DONGLE_DEV_PATH = r"D:\dev\license.key"  # uji file license.key lokal
 ```
+
+`DONGLE_WAJIB = False` juga bisa dipakai, tetapi `DEMO_MODE` lebih eksplisit
+untuk demo. Jangan commit nilai testing ini.
 
 ## Struktur Proyek
 

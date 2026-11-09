@@ -46,7 +46,9 @@ except ImportError:
 # ====================== KONFIGURASI ======================
 DONGLE_WAJIB = True            # False hanya untuk testing tanpa flashdisk
 DONGLE_HANYA_REMOVABLE = True  # Ubah ke False jika flashdisk tidak terdeteksi
-DONGLE_KEY = "KUNCI-DIARY-2026"  # isi file license.key di flashdisk
+DONGLE_KEY_HASH = "9d8e7c17c0cc2e86f9c1bf231c8ba05b3f4c2636377be8eae28db8600a777af3"  # sha256("KUNCI-DIARY-2026")
+DEMO_MODE = False              # True = lewati dongle (khusus demo/testing; jangan di-commit)
+DONGLE_DEV_PATH = None         # contoh: r"D:\dev\license.key" untuk uji tanpa flashdisk
 DIFFICULTY = "000"             # tingkat kesulitan proof of work
 FACE_THRESHOLD = 70            # makin kecil = makin ketat
 
@@ -80,23 +82,28 @@ FONT_MONO = ("Consolas", 9)
 
 
 # ====================== 1. DONGLE ======================
+def _dongle_cocok(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            isi = f.read().strip()
+    except OSError:
+        return False
+    return hashlib.sha256(isi.encode()).hexdigest() == DONGLE_KEY_HASH
+
+
 def cek_dongle():
-    if not DONGLE_WAJIB:
+    if DEMO_MODE or not DONGLE_WAJIB:
         return True
+    if DONGLE_DEV_PATH:
+        return _dongle_cocok(DONGLE_DEV_PATH)
     if not hasattr(ctypes, "windll"):
         return False
     for huruf in string.ascii_uppercase:
         root = f"{huruf}:\\"
         if DONGLE_HANYA_REMOVABLE and ctypes.windll.kernel32.GetDriveTypeW(root) != 2:
             continue
-        path = root + "license.key"
-        if os.path.isfile(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    if f.read().strip() == DONGLE_KEY:
-                        return True
-            except OSError:
-                pass
+        if _dongle_cocok(root + "license.key"):
+            return True
     return False
 
 
@@ -314,7 +321,10 @@ def verifikasi_chain():
             return False, f"Blok #{idx} tidak valid (rantai rusak)."
         prev = h
         if data.startswith("entry:"):
-            _, eid, hs = data.split(":")
+            bagian = data.split(":")
+            if len(bagian) != 3:
+                return False, f"Format blok entri #{idx} tidak valid."
+            _, eid, hs = bagian
             row = DB.execute("SELECT judul_enc, isi_enc, user_id FROM entries WHERE id=?",
                              (eid,)).fetchone()
             if row is None:
@@ -323,7 +333,18 @@ def verifikasi_chain():
                 return False, f"Isi entri diary #{eid} sudah diubah!"
             if row[2] != uid:
                 return False, f"Pemilik entri diary #{eid} sudah diubah!"
-    return True, "Semua blok valid. Data diary tidak pernah diubah."
+        elif data.startswith("file:"):
+            bagian = data.split(":")
+            if len(bagian) != 3:
+                return False, f"Format blok file #{idx} tidak valid."
+            _, nama, hs = bagian
+            kandidat = [os.path.join(BASE, nama), os.path.join(DATA, nama)]
+            berkas = next((p for p in kandidat if os.path.isfile(p)), None)
+            if berkas is not None:
+                with open(berkas, "rb") as f:
+                    if hashlib.sha256(f.read()).hexdigest() != hs:
+                        return False, f"File '{nama}' sudah diubah!"
+    return True, "Semua blok valid. Data diary dan file terverifikasi."
 
 
 def cari_user(username):
@@ -348,9 +369,12 @@ def _detektor():
 
 
 def biometrik_daftar(face_path) -> bool:
+    if not cek_dongle():
+        messagebox.showerror("Biometrik", "Dongle tidak terpasang.\nBiometrik tidak dapat diaktifkan.")
+        return False
     if not HAS_CV:
-        return messagebox.askyesno("Biometrik (Simulasi)",
-                                   "OpenCV tidak terpasang.\nDaftarkan sidik jari simulasi?")
+        messagebox.showerror("Biometrik", "OpenCV (contrib) tidak terpasang.\nBiometrik tidak dapat digunakan.")
+        return False
     try:
         det = _detektor()
     except FileNotFoundError as ex:
@@ -381,8 +405,12 @@ def biometrik_daftar(face_path) -> bool:
 
 
 def biometrik_verifikasi(face_path) -> bool:
+    if not cek_dongle():
+        messagebox.showerror("Biometrik", "Dongle tidak terpasang.\nBiometrik tidak dapat diaktifkan.")
+        return False
     if not HAS_CV:
-        return messagebox.askyesno("Biometrik (Simulasi)", "Sidik jari simulasi cocok?")
+        messagebox.showerror("Biometrik", "OpenCV (contrib) tidak terpasang.\nBiometrik tidak dapat digunakan.")
+        return False
     if not os.path.exists(face_path):
         messagebox.showerror("Biometrik", "Data wajah akun ini tidak ditemukan.")
         return False
@@ -573,6 +601,18 @@ class App(tk.Tk):
         self.sudah_logout = False      # tombol Exit hanya muncul setelah logout
         self.entry_ids = []
         self.tampil_login()
+        self.after(5000, self._monitor_dongle)
+
+    def _monitor_dongle(self):
+        if self.user is not None and not cek_dongle():
+            self._logout_paksa()
+        self.after(5000, self._monitor_dongle)
+
+    def _logout_paksa(self):
+        self.user = self.user_id = self.password = self.rsa = None
+        self.sudah_logout = True
+        self.tampil_login()
+        messagebox.showwarning("Dongle Dicabut", "Dongle terlepas. Anda telah logout.")
 
     def atur_fullscreen(self, aktif):
         self.attributes("-fullscreen", bool(aktif))
@@ -633,6 +673,9 @@ class App(tk.Tk):
         self.e_pw.bind("<Return>", lambda e: self.login())
 
     def login(self):
+        if not cek_dongle():
+            messagebox.showerror("Akses Ditolak", "Dongle tidak terpasang.")
+            return
         username, pw = self.e_user.get().strip().lower(), self.e_pw.get()
         u = cari_user(username) if username else None
         if not u or not hmac.compare_digest(hash_password(pw, bytes.fromhex(u[1])), u[2]):
